@@ -26,7 +26,6 @@ namespace game2
 
             if (_spawnTimer <= 0)
             {
-                // Randomly select one of the available paths
                 int pathIndex = RandomHelper.GetInt(0, paths.Count);
                 List<Vector2> path = paths[pathIndex];
 
@@ -35,7 +34,9 @@ namespace game2
                 int roll = RandomHelper.GetInt(1, 101);
 
                 Enemy e;
-                if (roll <= 30)
+                if (roll <= 10)
+                    e = new duplicator(_content.Load<Texture2D>("spawner"), path[0], path, hp, spd, _tileSize);
+                else if (roll <= 30)
                     e = new Tank(_content.Load<Texture2D>("radhanpixel"), path[0], path, hp, spd, _tileSize);
                 else if (roll <= 80)
                     e = new fast(_content.Load<Texture2D>("malikethpixel"), path[0], path, hp, spd, _tileSize);
@@ -53,4 +54,4 @@ namespace game2
             }
         }
     }
-}
+}　

@@ -12,7 +12,6 @@ namespace game2
         public BOSS(Texture2D texture, Vector2 startPosition, List<Vector2> waypoints, float hp, float speed, int size)
             : base(texture, startPosition, waypoints, hp * 10f, speed * 1.1f, size)
         {
-            // Malenia has massive HP and the new 'size' parameter.
         }
 
         public override void Update(GameTime gameTime)
@@ -21,10 +20,10 @@ namespace game2
 
             if (_teleportTimer <= 0 && RandomHelper.Chance(0.01f) && _didTeleport == 0f)
             {
-                if (_currentWaypointIndex < _waypoints.Count - 1)
+                if (CurrentWaypointIndex < _waypoints.Count - 1)
                 {
-                    _currentWaypointIndex++;
-                    Position = _waypoints[_currentWaypointIndex];
+                    CurrentWaypointIndex++;
+                    Position = _waypoints[CurrentWaypointIndex];
                     _teleportTimer = 2.0f;
                     _didTeleport = 1f;
                 }

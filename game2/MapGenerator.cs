@@ -140,7 +140,20 @@ namespace game2
                 for (int x = Math.Min(sX, eX); x <= Math.Max(sX, eX); x++)
                     for (int y = Math.Min(sY, eY); y <= Math.Max(sY, eY); y++)
                         if (x >= 0 && x < _cols && y >= 0 && y < _rows)
-                            GridMap[x, y] = value;
+                        {
+                            // LOGIC CHANGE HERE:
+                            // If the grid is already Path 1 (1) and we are trying to write Path 2 (3),
+                            // mark it as Intersection (4).
+                            if (GridMap[x, y] == 1 && value == 3)
+                            {
+                                GridMap[x, y] = 4;
+                            }
+                            // Otherwise, only overwrite if it's not already an intersection
+                            else if (GridMap[x, y] != 4)
+                            {
+                                GridMap[x, y] = value;
+                            }
+                        }
             }
         }
     }

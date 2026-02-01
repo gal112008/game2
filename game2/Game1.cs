@@ -16,9 +16,11 @@ namespace game2
         private List<Enemy> _enemies = new List<Enemy>();
         private List<Tower> _towers = new List<Tower>();
         private List<Bullet> _bullets = new List<Bullet>();
-        private double _currentWave = 0, _waveEndCount = 0;
+        private double _currentWave = 1, _waveEndCount = 0;
         private MouseState _previousMouseState;
         private const int TileSize = 48;
+        
+        private int hp = 1; // Player life resource
 
         public Game1()
         {
@@ -34,7 +36,6 @@ namespace game2
             _mapGen = new MapGenerator(1024, 768, TileSize);
             _mapGen.Generate();
 
-            // Offset waypoints for ALL paths
             foreach (var path in _mapGen.Paths)
             {
                 for (int i = 0; i < path.Count; i++)
@@ -87,22 +88,53 @@ namespace game2
 
         private void UpdateEntities(GameTime gameTime)
         {
+            if (hp <= 0) return;
             QuadTree spatialIndex = new QuadTree(new Rectangle(0, 0, 1024, 768));
+            List<Enemy> newChildren = new List<Enemy>();
+
             for (int i = _enemies.Count - 1; i >= 0; i--)
             {
-                _enemies[i].Update(gameTime);
-                if (!_enemies[i].IsActive) { _enemies.RemoveAt(i); _waveEndCount++; }
-                else spatialIndex.Insert(_enemies[i]);
+                _enemies[i].Update(gameTime); //
+
+                // Specifically check if this is a duplicator to grab its delayed children
+                if (_enemies[i] is duplicator dup)
+                {
+                    newChildren.AddRange(dup.GetPendingChildren());
+                }
+
+                if (!_enemies[i].IsActive)
+                {
+                    // If they reached the end (Health > 0), player loses food
+                    if (_enemies[i].Health > 0)
+                    {
+                        hp--;
+                    }
+
+                    _enemies.RemoveAt(i); //
+                    _waveEndCount++;
+                }
+                else
+                {
+                    // Only add to the spatial index for towers to target if they are alive
+                    if (_enemies[i].Health > 0)
+                        spatialIndex.Insert(_enemies[i]); //
+                }
             }
+
+            // Add any children spawned this frame to the main list
+            _enemies.AddRange(newChildren);
+
+            // Continue with towers and bullets
             foreach (var tower in _towers) tower.Update(gameTime, spatialIndex, _bullets);
+
             for (int i = _bullets.Count - 1; i >= 0; i--)
             {
                 _bullets[i].Update();
                 if (!_bullets[i].IsActive) _bullets.RemoveAt(i);
             }
+
             if (_waveEndCount >= 5) { _currentWave++; _waveEndCount = 0; }
         }
-
         protected override void Draw(GameTime gameTime)
         {
             GraphicsDevice.Clear(Color.DarkGreen);
@@ -113,11 +145,26 @@ namespace game2
                 for (int y = 0; y < _mapGen.GridMap.GetLength(1); y++)
                 {
                     Rectangle rect = new Rectangle(x * TileSize, y * TileSize, TileSize - 1, TileSize - 1);
-                    Color tileColor = Color.ForestGreen;
 
-                    // Different colors for the two paths
-                    if (_mapGen.GridMap[x, y] == 1) tileColor = Color.Gray;
-                    else if (_mapGen.GridMap[x, y] == 3) tileColor = Color.SlateGray;
+                    Color tileColor;
+                    int tileType = _mapGen.GridMap[x, y];
+
+                    if (tileType == 1)
+                    {
+                        tileColor = Color.Blue; // Color for Path 1
+                    }
+                    else if (tileType == 3)
+                    {
+                        tileColor = Color.Azure; // Distinct color for Path 2
+                    }
+                    else if (tileType==4)
+                    {
+                        tileColor=Color.Aquamarine;
+                    }
+                    else
+                    {
+                        tileColor = Color.ForestGreen; // Grass/Background
+                    }
 
                     _spriteBatch.Draw(_pixel, rect, tileColor * 0.5f);
                 }
@@ -127,6 +174,26 @@ namespace game2
             foreach (var e in _enemies) e.Draw(_spriteBatch, _gameFont);
             foreach (var b in _bullets) b.Draw(_spriteBatch);
 
+            // Draw  UI
+            _spriteBatch.DrawString(_gameFont, $"hp left: {hp}", new Vector2(20, 20), Color.Yellow);
+            _spriteBatch.DrawString(_gameFont, $"wave: {_currentWave}", new Vector2(120, 20), Color.Yellow);
+            _spriteBatch.DrawString(_gameFont, $"enemies alive: {_enemies.Count}", new Vector2(220, 20), Color.Yellow);
+
+            if (hp <= 0)
+            {
+                string message = "GAME OVER";
+
+                // Calculate the center position based on font size
+                Vector2 fontSize = _gameFont.MeasureString(message);
+                Vector2 screenCenter = new Vector2(GraphicsDevice.Viewport.Width / 2, GraphicsDevice.Viewport.Height / 2);
+                Vector2 origin = fontSize / 2;
+
+                // Draw a dark overlay to make text pop
+                _spriteBatch.Draw(_pixel, new Rectangle(0, 0, 1024, 768), Color.Black * 0.5f);
+
+                // Draw the text (using scale 3f to make it "Big")
+                _spriteBatch.DrawString(_gameFont, message, screenCenter, Color.Red, 0, origin, 3f, SpriteEffects.None, 0);
+            }
             _spriteBatch.End();
             base.Draw(gameTime);
         }
