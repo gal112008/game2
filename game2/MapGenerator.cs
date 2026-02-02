@@ -39,10 +39,10 @@ namespace game2
         {
             List<Vector2> newPath = new List<Vector2>();
             Random rand = new Random();
-            int currentX = 0;
-            int currentY = startY;
-            int last = rand.Next(0, 2);
-            int didyounotloop = 0;
+            int currentX = 0;//x of position
+            int currentY = startY;//y of position
+            int last = rand.Next(0, 2);//last turn up or down to make the map spread more
+            int didyounotloop = 0;//to not make loops right after you made one
 
             newPath.Add(new Vector2(currentX * _tileSize, currentY * _tileSize));
             currentX++;
@@ -88,14 +88,29 @@ namespace game2
         {
             int targetX = currentX;
             int targetY = currentY;
-            switch (direction)
+
+            if (direction == 0) // Up
             {
-                case 0: targetY--; break;
-                case 1: targetX++; break;
-                case 2: targetY++; break;
-                case 3: targetX--; break;
-                default: return false;
+                targetY--;
             }
+            else if (direction == 1) // Right
+            {
+                targetX++;
+            }
+            else if (direction == 2) // Down
+            {
+                targetY++;
+            }
+            else if (direction == 3) // Left
+            {
+                targetX--;
+            }
+            else
+            {
+                return false; // Invalid direction
+            }
+
+            // Check bounds and ensure the cell is empty (0)
             return (targetX >= 0 && targetX < _cols && targetY >= 0 && targetY < _rows) && GridMap[targetX, targetY] == 0;
         }
 
@@ -141,14 +156,13 @@ namespace game2
                     for (int y = Math.Min(sY, eY); y <= Math.Max(sY, eY); y++)
                         if (x >= 0 && x < _cols && y >= 0 && y < _rows)
                         {
-                            // LOGIC CHANGE HERE:
                             // If the grid is already Path 1 (1) and we are trying to write Path 2 (3),
                             // mark it as Intersection (4).
                             if (GridMap[x, y] == 1 && value == 3)
                             {
                                 GridMap[x, y] = 4;
                             }
-                            // Otherwise, only overwrite if it's not already an intersection
+                            // based on the path 
                             else if (GridMap[x, y] != 4)
                             {
                                 GridMap[x, y] = value;
