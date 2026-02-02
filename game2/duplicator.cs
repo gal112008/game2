@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System.Collections.Generic;
+using static game2.TowerManager;
 
 namespace game2
 {
@@ -13,7 +14,7 @@ namespace game2
         private int _remainingChildrenToSpawn = 0;
 
         public duplicator(Texture2D texture, Vector2 startPosition, List<Vector2> waypoints, float hp, float speed, int size)
-            : base(texture, startPosition, waypoints, hp * 10, speed*0.2f, size)
+            : base(texture, startPosition, waypoints, hp * 10, speed*0.2f, size, 50)
         {
             _initialBaseHP = hp;
         }
@@ -60,6 +61,7 @@ namespace game2
                     _initialBaseHP / 1.2f,
                     Speed * 2f,
                     _size / 2
+                    ,6
                 );
 
                 child.CurrentWaypointIndex = this.CurrentWaypointIndex;
@@ -72,12 +74,11 @@ namespace game2
             return children;
         }
 
-        public override void Draw(SpriteBatch spriteBatch, SpriteFont font)
+        public override void Draw(SpriteBatch spriteBatch, SpriteFont font, Dictionary<DamageType, Texture2D> typeIcons)
         {
-            // Only draw the parent if it's still alive (not in spawning mode)
             if (Health > 0)
             {
-                base.Draw(spriteBatch, font);
+                base.Draw(spriteBatch, font, typeIcons);
             }
         }
     }

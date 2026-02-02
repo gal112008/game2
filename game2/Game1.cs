@@ -14,13 +14,18 @@ namespace game2
         private Texture2D _towerTexture, _pixel;
         private SpriteFont _gameFont;
         private List<Enemy> _enemies = new List<Enemy>();
-        private List<Tower> _towers = new List<Tower>();
+        private TowerManager _towerManager;
         private List<Bullet> _bullets = new List<Bullet>();
         private double _currentWave = 1, _waveEndCount = 0;
         private MouseState _previousMouseState;
+        private KeyboardState _previousKeyboardState; // Add this line
         private const int TileSize = 48;
-        
-        private int hp = 1; // Player life resource
+        int gold=400;
+        // Inside Game1.cs
+        private bool _isShopOpen = false;
+        private TowerType _selectedType = TowerType.Basic; // Default tower
+
+        private int hp = 5; // Player life resource
 
         public Game1()
         {
@@ -35,6 +40,7 @@ namespace game2
         {
             _mapGen = new MapGenerator(1024, 768, TileSize);
             _mapGen.Generate();
+            _towerManager = new TowerManager(TileSize);
 
             foreach (var path in _mapGen.Paths)
             {
@@ -55,6 +61,7 @@ namespace game2
             _gameFont = Content.Load<SpriteFont>("File");
             _pixel = new Texture2D(GraphicsDevice, 1, 1);
             _pixel.SetData(new[] { Color.White });
+            _towerManager.LoadContent(Content, _pixel);
         }
 
         protected override void Update(GameTime gameTime)
@@ -64,28 +71,49 @@ namespace game2
             _spawner.Update(gameTime, _currentWave, _mapGen.Paths, _enemies);
             UpdateEntities(gameTime);
             base.Update(gameTime);
+            _previousKeyboardState = Keyboard.GetState();
         }
+
 
         private void HandleInput()
         {
+            KeyboardState kState = Keyboard.GetState();
             MouseState currentMouse = Mouse.GetState();
+
+            // 1. Select Tower Type with 0, 1, 2 keys
+            // Mapping: 0 = Basic, 1 = Sniper, 2 = FastFire
+            if (kState.IsKeyDown(Keys.D1)) _selectedType = TowerType.Basic;
+            if (kState.IsKeyDown(Keys.D2)) _selectedType = TowerType.Sniper;
+            if (kState.IsKeyDown(Keys.D3)) _selectedType = TowerType.FastFire;
+
+            // 2. Place Tower on Left Click
             if (currentMouse.LeftButton == ButtonState.Pressed && _previousMouseState.LeftButton == ButtonState.Released)
             {
                 int gX = currentMouse.X / TileSize;
                 int gY = currentMouse.Y / TileSize;
+
+                // Check if mouse is within map bounds
                 if (gX >= 0 && gX < _mapGen.GridMap.GetLength(0) && gY >= 0 && gY < _mapGen.GridMap.GetLength(1))
                 {
+                    // Only allow placement on Grass (tileType 0)
                     if (_mapGen.GridMap[gX, gY] == 0)
                     {
                         Vector2 snapPos = new Vector2(gX * TileSize + (TileSize / 2), gY * TileSize + (TileSize / 2));
-                        _towers.Add(new Tower(_towerTexture, _pixel, snapPos, TileSize));
-                        _mapGen.GridMap[gX, gY] = 2;
+
+                        // TowerManager handles the gold check and deduction via 'ref gold'
+                        if (_towerManager.CreateTower(_selectedType, snapPos, ref gold))
+                        {
+                            // Success! Mark tile as occupied (type 2) so we can't stack towers
+                            _mapGen.GridMap[gX, gY] = 2;
+                        }
                     }
                 }
             }
-            _previousMouseState = currentMouse;
-        }
 
+            // Update states for next frame
+            _previousMouseState = currentMouse;
+            _previousKeyboardState = kState;
+        }
         private void UpdateEntities(GameTime gameTime)
         {
             if (hp <= 0) return;
@@ -104,10 +132,14 @@ namespace game2
 
                 if (!_enemies[i].IsActive)
                 {
-                    // If they reached the end (Health > 0), player loses food
+                    // If they reached the end (Health > 0), player loses hp
                     if (_enemies[i].Health > 0)
                     {
                         hp--;
+                    }
+                    if (_enemies[i].Health <= 0)
+                    {
+                        gold += _enemies[i].GoldReward; 
                     }
 
                     _enemies.RemoveAt(i); //
@@ -121,12 +153,11 @@ namespace game2
                 }
             }
 
-            // Add any children spawned this frame to the main list
+            // Add any children spwaned this frame to the main list
             _enemies.AddRange(newChildren);
 
-            // Continue with towers and bullets
-            foreach (var tower in _towers) tower.Update(gameTime, spatialIndex, _bullets);
-
+            _towerManager.Update(gameTime, spatialIndex, _bullets);
+            
             for (int i = _bullets.Count - 1; i >= 0; i--)
             {
                 _bullets[i].Update();
@@ -170,14 +201,22 @@ namespace game2
                 }
             }
 
-            foreach (var t in _towers) t.Draw(_spriteBatch);
-            foreach (var e in _enemies) e.Draw(_spriteBatch, _gameFont);
+            _towerManager.Draw(_spriteBatch);
+            _towerManager.Draw(_spriteBatch);
+
+            foreach (var e in _enemies)
+            {
+                // Pass the Dictionary from TowerManager as the third argument
+                e.Draw(_spriteBatch, _gameFont, _towerManager.TypeIcons);
+            }
             foreach (var b in _bullets) b.Draw(_spriteBatch);
 
             // Draw  UI
-            _spriteBatch.DrawString(_gameFont, $"hp left: {hp}", new Vector2(20, 20), Color.Yellow);
-            _spriteBatch.DrawString(_gameFont, $"wave: {_currentWave}", new Vector2(120, 20), Color.Yellow);
-            _spriteBatch.DrawString(_gameFont, $"enemies alive: {_enemies.Count}", new Vector2(220, 20), Color.Yellow);
+            _spriteBatch.DrawString(_gameFont, $"Selected: {_selectedType}", new Vector2(20, 50), Color.White);// selected tower
+            _spriteBatch.DrawString(_gameFont, $"balance: {gold}", new Vector2(400, 20), Color.Yellow);//gold balance
+            _spriteBatch.DrawString(_gameFont, $"hp left: {hp}", new Vector2(20, 20), Color.Yellow);// draw hp left
+            _spriteBatch.DrawString(_gameFont, $"wave: {_currentWave}", new Vector2(120, 20), Color.Yellow);// draw current wave
+            _spriteBatch.DrawString(_gameFont, $"enemies alive: {_enemies.Count}", new Vector2(220, 20), Color.Yellow);//draw enemies alive
 
             if (hp <= 0)
             {

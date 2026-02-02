@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System.Collections.Generic;
+using static game2.TowerManager;
 
 namespace game2
 {
@@ -13,13 +14,14 @@ namespace game2
         private float _timer = 0f;
         private int _size;
         private Texture2D _bulletTexture;
+        public DamageType DamageType = DamageType.Physical;
 
         public Tower(Texture2D texture, Texture2D bulletTexture, Vector2 position, int size)
         {
             Texture = texture;
             _bulletTexture = bulletTexture;
             Position = position;
-            _size = size; // Store the TileSize
+            _size = size;
         }
 
         public void Update(GameTime gameTime, QuadTree spatialIndex, List<Bullet> bullets)
@@ -41,23 +43,26 @@ namespace game2
 
                 if (target != null)
                 {
-                    bullets.Add(new Bullet(_bulletTexture, Position, target));
+                    Bullet b = new Bullet(_bulletTexture, Position, target);
+                    b.Type = this.DamageType;
+                    bullets.Add(b);
                     _timer = Cooldown;
                 }
             }
         }
 
-        public void Draw(SpriteBatch spriteBatch)
+        // Updated Draw: Now draws the element icon in the corner
+        public void Draw(SpriteBatch spriteBatch, Dictionary<DamageType, Texture2D> typeIcons)
         {
-            // Use a rectangle to scale the texture to TileSize
-            Rectangle destRect = new Rectangle(
-                (int)Position.X - (_size / 2),
-                (int)Position.Y - (_size / 2),
-                _size,
-                _size
-            );
-
+            Rectangle destRect = new Rectangle((int)Position.X - (_size / 2), (int)Position.Y - (_size / 2), _size, _size);
             spriteBatch.Draw(Texture, destRect, Color.White);
+
+            if (typeIcons.ContainsKey(DamageType) && DamageType != DamageType.Physical)
+            {
+                // Draw small icon in bottom right corner
+                Rectangle iconRect = new Rectangle(destRect.Right - 18, destRect.Bottom - 18, 16, 16);
+                spriteBatch.Draw(typeIcons[DamageType], iconRect, Color.White);
+            }
         }
     }
 }

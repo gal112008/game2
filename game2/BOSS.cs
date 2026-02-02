@@ -10,7 +10,7 @@ namespace game2
         private float _didTeleport = 0f;
 
         public BOSS(Texture2D texture, Vector2 startPosition, List<Vector2> waypoints, float hp, float speed, int size)
-            : base(texture, startPosition, waypoints, hp * 10f, speed * 1.1f, size)
+            : base(texture, startPosition, waypoints, hp * 10f, speed * 1.1f, size,100)
         {
         }
 

@@ -1,5 +1,6 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using static game2.TowerManager;
 
 namespace game2
 {
@@ -11,6 +12,7 @@ namespace game2
         public float Speed = 10f;
         public int Damage = 25;
         public bool IsActive = true;
+        public DamageType Type;
 
         public Bullet(Texture2D texture, Vector2 position, Enemy target)
         {
@@ -32,8 +34,8 @@ namespace game2
 
             if (distance < Speed)
             {
-                // Hit the enemy
-                Target.Health -= Damage;
+                // Use the new TakeDamage method instead of subtracting health directly
+                Target.TakeDamage(Damage, Type);
                 IsActive = false;
             }
             else

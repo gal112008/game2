@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
+using static game2.TowerManager;
 
 namespace game2
 {
@@ -33,16 +34,16 @@ namespace game2
                 float spd = 3f;
                 int roll = RandomHelper.GetInt(1, 101);
 
-                Enemy e;
-                if (roll <= 10)
-                    e = new duplicator(_content.Load<Texture2D>("spawner"), path[0], path, hp, spd, _tileSize);
-                else if (roll <= 30)
-                    e = new Tank(_content.Load<Texture2D>("radhanpixel"), path[0], path, hp, spd, _tileSize);
-                else if (roll <= 80)
-                    e = new fast(_content.Load<Texture2D>("malikethpixel"), path[0], path, hp, spd, _tileSize);
-                else
-                    e = new Enemy(_content.Load<Texture2D>("treesenpixel"), path[0], path, hp, spd, _tileSize);
+                // UPDATED: Now rolls for all element types (1 to 10 in the enum)
+                int resRoll = RandomHelper.GetInt(1, 11);
 
+                Enemy e;
+                if (roll <= 10) e = new duplicator(_content.Load<Texture2D>("spawner"), path[0], path, hp, spd, _tileSize);
+                else if (roll <= 30) e = new Tank(_content.Load<Texture2D>("radhanpixel"), path[0], path, hp, spd, _tileSize);
+                else if (roll <= 80) e = new fast(_content.Load<Texture2D>("malikethpixel"), path[0], path, hp, spd, _tileSize);
+                else e = new Enemy(_content.Load<Texture2D>("treesenpixel"), path[0], path, hp, spd, _tileSize, 10);
+
+                e.ResistType = (DamageType)resRoll;
                 enemies.Add(e);
 
                 if (currentWave % 5 == 0 && currentWave != 0 && _boss_to_spawn == 0)
@@ -54,4 +55,4 @@ namespace game2
             }
         }
     }
-}　
+}
