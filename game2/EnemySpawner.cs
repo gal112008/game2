@@ -9,10 +9,7 @@ namespace game2
 {
     public class EnemySpawner
     {
-        private float _spawnTimer = 0f;
-        private float _spawnInterval = 2f;
         private ContentManager _content;
-        private int _boss_to_spawn = 0;
         private int _tileSize;
 
         public EnemySpawner(ContentManager content, int tileSize)
@@ -21,38 +18,85 @@ namespace game2
             _tileSize = tileSize;
         }
 
-        public void Update(GameTime gameTime, double currentWave, List<List<Vector2>> paths, List<Enemy> enemies)
+        // NEW SPAWN METHOD using WaveDirector
+        public void SpawnWave(WaveDirector director, List<List<Vector2>> paths, List<Tower> towers, List<Enemy> enemies, double currentWave)
         {
-            _spawnTimer -= (float)gameTime.ElapsedGameTime.TotalSeconds;
+            // 1. GET BEST STRATEGY (AI Choice)
+            var strategy = director.GetBestStrategy(paths, towers);
+            List<Vector2> chosenPath = paths[strategy.pathIdx];
 
-            if (_spawnTimer <= 0)
+            float spent = 0;
+            // Scale HP slightly with waves
+            float baseHp = 100f * (float)Math.Pow(1.1, currentWave);
+            float baseSpeed = 3f;
+
+            // 2. SPAWN LOOP (Tanks first 50%, then Fast)
+            while (spent < director.TotalBudget)
             {
-                int pathIndex = RandomHelper.GetInt(0, paths.Count);
-                List<Vector2> path = paths[pathIndex];
-
-                float hp = 100f * (float)Math.Pow(1.1, currentWave);
-                float spd = 3f;
-                int roll = RandomHelper.GetInt(1, 101);
-
-                // UPDATED: Now rolls for all element types (1 to 10 in the enum)
-                int resRoll = RandomHelper.GetInt(1, 11);
-
                 Enemy e;
-                if (roll <= 10) e = new duplicator(_content.Load<Texture2D>("spawner"), path[0], path, hp, spd, _tileSize);
-                else if (roll <= 30) e = new Tank(_content.Load<Texture2D>("radhanpixel"), path[0], path, hp, spd, _tileSize);
-                else if (roll <= 80) e = new fast(_content.Load<Texture2D>("malikethpixel"), path[0], path, hp, spd, _tileSize);
-                else e = new Enemy(_content.Load<Texture2D>("treesenpixel"), path[0], path, hp, spd, _tileSize, 10);
+                bool isTankPhase = spent < (director.TotalBudget * 0.5f);
 
-                e.ResistType = (DamageType)resRoll;
-                enemies.Add(e);
-
-                if (currentWave % 5 == 0 && currentWave != 0 && _boss_to_spawn == 0)
+                if (isTankPhase)
                 {
-                    enemies.Add(new BOSS(_content.Load<Texture2D>("maleniapixel"), path[0], path, hp, spd, _tileSize));
-                    _boss_to_spawn++;
+                    // --- TANK ---
+                    // Slower (0.7x speed), High HP (2x HP), Costs 25
+                    e = new Tank(_content.Load<Texture2D>("radhanpixel"), chosenPath[0], chosenPath, baseHp * 2f, baseSpeed * 0.7f, _tileSize);
+                    spent += 25;
                 }
-                _spawnTimer = _spawnInterval;
+                else
+                {
+                    // --- FAST / NORMAL ---
+                    int roll = RandomHelper.GetInt(0, 100);
+                    if (roll < 30)
+                    {
+                        // Fast Enemy: Low HP (0.7x), Fast (2x speed), Costs 15
+                        e = new fast(_content.Load<Texture2D>("malikethpixel"), chosenPath[0], chosenPath, baseHp * 0.7f, baseSpeed * 2f, _tileSize);
+                        spent += 15;
+                    }
+                    else
+                    {
+                        // Normal/Duplicator
+                        e = new duplicator(_content.Load<Texture2D>("spawner"), chosenPath[0], chosenPath, baseHp, baseSpeed, _tileSize);
+                        spent += 20;
+                    }
+                }
+
+                // Apply the AI's chosen element
+                e.ResistType = strategy.element;
+                enemies.Add(e);
+            }
+
+            // 3. BOSS LOGIC (Every 5 Waves)
+            if (currentWave % 5 == 0 && currentWave != 0)
+            {
+                // Find the SAFEST path (Lowest Risk)
+                int safestPathIdx = 0;
+                float lowestRisk = float.MaxValue;
+
+                for (int i = 0; i < paths.Count; i++)
+                {
+                    float r = director.CalculatePathRisk(paths[i], towers);
+                    if (r < lowestRisk) { lowestRisk = r; safestPathIdx = i; }
+                }
+
+                List<Vector2> bossPath = paths[safestPathIdx];
+
+                // Create Boss
+                BOSS boss = new BOSS(_content.Load<Texture2D>("maleniapixel"), bossPath[0], bossPath, baseHp * 1.5f, baseSpeed, _tileSize);
+
+                // --- 2 ELEMENTS LOGIC ---
+                // 1. Primary from Strategy
+                boss.ResistType = strategy.element;
+                // 2. Secondary Random Element
+                Array types = Enum.GetValues(typeof(DamageType));
+                DamageType randomType = (DamageType)types.GetValue(RandomHelper.GetInt(1, types.Length));
+                boss.ExtraResistances.Add(randomType);
+
+                enemies.Add(boss);
             }
         }
+
+        // Empty Update because we spawn everything at start of wave now
+        public void Update(GameTime gameTime) { }
     }
 }

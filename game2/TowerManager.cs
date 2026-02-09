@@ -23,7 +23,10 @@ namespace game2
             _tileSize = tileSize;
         }
 
-        // The full list of elements
+        // --- NEW HELPER METHOD ---
+        public List<Tower> GetTowers() => _towers;
+        // -------------------------
+
         public enum DamageType { Physical, Fire, Ice, Water, Earth, Rot, Dark, Holy, Bleed, Magic, Knight }
 
         public int GetCost(TowerType type)
@@ -37,7 +40,6 @@ namespace game2
             _towerTextures[TowerType.Sniper] = content.Load<Texture2D>("ado_normal");
             _towerTextures[TowerType.FastFire] = content.Load<Texture2D>("ado_burn");
 
-            // Loading your custom icons
             foreach (DamageType t in Enum.GetValues(typeof(DamageType)))
             {
                 if (t == DamageType.Physical) continue;
@@ -51,8 +53,7 @@ namespace game2
         {
             public static float GetMultiplier(DamageType atk, DamageType res)
             {
-                if (atk == res) return 0.5f; // Resistant to own type
-
+                if (atk == res) return 0.5f;
                 return (atk, res) switch
                 {
                     (DamageType.Fire, DamageType.Ice) => 2.0f,
@@ -73,12 +74,9 @@ namespace game2
             if (currentGold >= cost)
             {
                 Tower newTower = new Tower(_towerTextures[type], _bulletTexture, position, _tileSize);
-
-                // RANDOMIZE TOWER ELEMENT ON PLACEMENT
                 Array types = Enum.GetValues(typeof(DamageType));
                 newTower.DamageType = (DamageType)types.GetValue(RandomHelper.GetInt(1, types.Length));
 
-                // Specific stats based on tower model
                 if (type == TowerType.Sniper) { newTower.Range = 400f; newTower.Cooldown = 1.5f; }
                 if (type == TowerType.FastFire) { newTower.Range = 120f; newTower.Cooldown = 0.15f; }
 
