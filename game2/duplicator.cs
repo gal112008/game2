@@ -28,7 +28,7 @@ namespace game2
                 return;
             }
 
-            // If health is 0, start the spawning sequence if not already started
+            // If health is 0, start the spawning sequence if not already started 
             if (!_isSpawning)
             {
                 _isSpawning = true;

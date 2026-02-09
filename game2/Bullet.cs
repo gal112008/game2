@@ -1,6 +1,5 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using static game2.TowerManager;
 
 namespace game2
 {
@@ -9,10 +8,11 @@ namespace game2
         public Texture2D Texture;
         public Vector2 Position;
         public Enemy Target;
-        public float Speed = 10f;
+        public float Speed = 12f;
         public int Damage = 25;
         public bool IsActive = true;
-        public DamageType Type;
+
+        public TowerManager.DamageType Type;
 
         public Bullet(Texture2D texture, Vector2 position, Enemy target)
         {
@@ -23,36 +23,33 @@ namespace game2
 
         public void Update()
         {
+            // If target is gone or dead, deactivate the bullet
             if (Target == null || !Target.IsActive)
             {
                 IsActive = false;
                 return;
             }
 
-            Vector2 direction = Target.Position - Position;
-            float distance = direction.Length();
+            Vector2 dir = Target.Position - Position;
 
-            if (distance < Speed)
+            // Check if bullet reached the target
+            if (dir.Length() < Speed)
             {
-                // Use the new TakeDamage method instead of subtracting health directly
+                // Apply damage using the elemental system in Enemy.cs
                 Target.TakeDamage(Damage, Type);
                 IsActive = false;
             }
             else
             {
-                direction.Normalize();
-                Position += direction * Speed;
+                dir.Normalize();
+                Position += dir * Speed;
             }
         }
 
-        public void Draw(SpriteBatch spriteBatch)
+        public void Draw(SpriteBatch sb)
         {
-            if (IsActive)
-            {
-                // Use a small scale or color for the bullet since we don't have a specific bullet sprite
-                // We will use a 1x1 white pixel created in Game1 for this usually, or one of the assets scaled down
-                spriteBatch.Draw(Texture, Position, null, Color.Yellow, 0f, Vector2.Zero, 0.5f, SpriteEffects.None, 0f);
-            }
+            // Draw bullet centered on its position
+            sb.Draw(Texture, Position, null, Color.Yellow, 0f, Vector2.Zero, 0.5f, SpriteEffects.None, 0f);
         }
     }
 }
