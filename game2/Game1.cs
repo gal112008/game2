@@ -11,7 +11,7 @@ namespace game2
         private SpriteBatch _spriteBatch;
 
         // --- NEW VARIABLES ---
-        private WaveDirector _waveDirector;
+        private WaveDirector _waveDirector;// Manages wave strategies and evolution
         private bool _enemiesReachedBaseThisWave = false;
 
         private MapGenerator _mapGen;
