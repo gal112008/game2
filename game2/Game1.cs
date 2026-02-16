@@ -1,12 +1,14 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using System;
 using System.Collections.Generic;
 
 namespace game2
 {
     public class Game1 : Game
     {
+
         private GraphicsDeviceManager _graphics;
         private SpriteBatch _spriteBatch;
 
@@ -31,6 +33,7 @@ namespace game2
         int gold = 400;
         private TowerType _selectedType = TowerType.Basic;
         private int hp = 5;
+
 
         public Game1()
         {
@@ -65,7 +68,6 @@ namespace game2
         protected override void LoadContent()
         {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
-            _towerTexture = Content.Load<Texture2D>("itai");
             _gameFont = Content.Load<SpriteFont>("File");
             _pixel = new Texture2D(GraphicsDevice, 1, 1);
             _pixel.SetData(new[] { Color.White });
@@ -91,16 +93,20 @@ namespace game2
             if (_enemies.Count == 0)
             {
                 _waveDelayTimer += (float)gameTime.ElapsedGameTime.TotalSeconds;
-                if (_waveDelayTimer > 2.0f) // 2 second break between waves
+                if (_waveDelayTimer > 2.0f)
                 {
-                    // 1. Evolve AI based on performance
+                    // 1. Record which enemies got furthest this wave (survivors)
+                    //    Pass _mapGen.Paths so RecordWaveSurvivors knows waypoint counts per path
+                    _spawner.RecordWaveSurvivors(_waveDirector, _mapGen.Paths);
+
+                    // 2. Evolve budget based on player performance
                     _waveDirector.Evolve(_enemiesReachedBaseThisWave);
                     _enemiesReachedBaseThisWave = false;
 
-                    // 2. Next Wave
+                    // 3. Next wave
                     _currentWave++;
 
-                    // 3. Spawn New Wave
+                    // 4. Spawn (AnalyzeAllPaths is called inside SpawnWave)
                     _spawner.SpawnWave(_waveDirector, _mapGen.Paths, _towerManager.GetTowers(), _enemies, _currentWave);
 
                     _waveDelayTimer = 0;
@@ -110,6 +116,8 @@ namespace game2
             base.Update(gameTime);
             _previousKeyboardState = Keyboard.GetState();
             //optimal  end code
+            // BACKTRACK
+
 
         }
 
@@ -187,14 +195,13 @@ namespace game2
                 _bullets[i].Update();
                 if (!_bullets[i].IsActive) _bullets.RemoveAt(i);
             }
-            //optimal code
 
         }
 
 
         protected override void Draw(GameTime gameTime)
         {
-            //optimal code
+            //optimal code*********************
 
             GraphicsDevice.Clear(Color.DarkGreen);
             _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
@@ -244,7 +251,6 @@ namespace game2
             }
             _spriteBatch.End();
             base.Draw(gameTime);
-            //optimal end code
 
         }
     }

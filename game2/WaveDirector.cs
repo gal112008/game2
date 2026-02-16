@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using static game2.TowerManager;
 
 namespace game2
@@ -11,23 +12,216 @@ namespace game2
         public float Fitness;
     }
 
+    // -------------------------------------------------------------------------
+    // What composition strategy to use on a specific path this wave.
+    // Derived from the tower makeup covering that path.
+    // -------------------------------------------------------------------------
+    public enum SpawnStrategy
+    {
+        TankWall,       // Slow-fire towers  -> tanks absorb the wide gaps between shots
+        FastSwarm,      // Short-range fast  -> fast enemies sprint past the kill zone
+        DuplicatorPush, // Balanced coverage -> duplicators multiply past the supply
+        NormalWithTank, // Tank up front + normals drafting behind its HP
+        NormalWithFast, // Fast scouts pull tower aggro, normals rush through reloads
+    }
+
+    // -------------------------------------------------------------------------
+    // Snapshot of the tower makeup covering one path.
+    // Built alongside ElementScores in RebuildScores().
+    // -------------------------------------------------------------------------
+    public class TowerProfile
+    {
+        public float AverageCooldown = 1f;  // High = slow firing = tanks survive longer
+        public float TotalDps = 0f;  // Sum of (1/cooldown) = raw lethality
+        public float AverageRange = 0f;  // High = snipers = fast enemies die early
+        public int TowerCount = 0;
+
+        // Helpers used by DeriveStrategy
+        public bool IsSlowFire => AverageCooldown > 0.8f;
+        public bool IsShortRange => AverageRange < 150f;
+    }
+
+    // -------------------------------------------------------------------------
+    // Snapshot of one enemy worth re-using next wave.
+    // -------------------------------------------------------------------------
+    public class SurvivorTemplate
+    {
+        public enum EnemyKind { Normal, Fast, Tank, Duplicator }
+
+        public EnemyKind Kind;
+        public DamageType ResistType;
+        public float HpMultiplier = 1f;
+        public float SpeedMultiplier = 1f;
+        public int BudgetCost;
+
+        // How far did this enemy get before the wave ended?
+        // Enemies that reached the base are given int.MaxValue so they sort to the top.
+        public int WaypointReached;
+    }
+
+    // -------------------------------------------------------------------------
+    // All per-path intelligence lives here.
+    // One instance per path, owned by WaveDirector.
+    // -------------------------------------------------------------------------
+    public class PathIntelligence
+    {
+        public int PathIndex;
+
+        // ── Element Score Array ──────────────────────────────────────────────
+        // Key   = DamageType
+        // Value = accumulated threat: sum over all covering towers of
+        //         (1/cooldown) * (range/100) * DamageChart.GetMultiplier(tower.type, element)
+        //
+        // HIGH score  = towers hit this resistance type very hard
+        //             = great resistance for enemies to have (GetTopResistances)
+        // LOW  score  = towers barely threaten this type
+        public Dictionary<DamageType, float> ElementScores = new Dictionary<DamageType, float>();
+
+        // Sorted snapshot rebuilt each wave (ascending score, so index 0 = weakest)
+        public List<(DamageType Element, float Score)> SortedScores = new List<(DamageType, float)>();
+
+        // ── Tower makeup on this path ────────────────────────────────────────
+        public TowerProfile TowerProfile = new TowerProfile();
+
+        // ── Derived spawn strategy for the coming wave ───────────────────────
+        public SpawnStrategy Strategy = SpawnStrategy.NormalWithTank;
+
+        // ── Survivor memory (up to 3 templates carried from last wave) ───────
+        public List<SurvivorTemplate> Survivors = new List<SurvivorTemplate>();
+
+        // ── Fatigue weight (path preference) ────────────────────────────────
+        public float Preference = 100f;
+
+        public PathIntelligence(int index)
+        {
+            PathIndex = index;
+            foreach (DamageType t in Enum.GetValues(typeof(DamageType)))
+                ElementScores[t] = 0f;
+        }
+
+        // ── Main rebuild: element scores + tower profile in one tower loop ───
+        public void RebuildScores(List<Vector2> path, List<Tower> towers)
+        {
+            // Reset element scores
+            foreach (DamageType t in Enum.GetValues(typeof(DamageType)))
+                ElementScores[t] = 0f;
+
+            // Reset profile
+            TowerProfile = new TowerProfile();
+            float totalCooldown = 0f;
+            float totalRange = 0f;
+
+            foreach (var tower in towers)
+            {
+                // Does this tower cover any point on the path?
+                float rangeSq = tower.Range * tower.Range;
+                bool canHit = false;
+                for (int i = 0; i < path.Count; i += 5)
+                {
+                    if (Vector2.DistanceSquared(path[i], tower.Position) <= rangeSq)
+                    { canHit = true; break; }
+                }
+                if (!canHit) continue;
+
+                // Accumulate profile data
+                TowerProfile.TowerCount++;
+                totalCooldown += tower.Cooldown;
+                totalRange += tower.Range;
+                TowerProfile.TotalDps += 1.0f / tower.Cooldown;
+
+                // Accumulate element scores
+                // baseRisk = DPS weight × reach weight (same formula for all tower types)
+                float baseRisk = (1.0f / tower.Cooldown) * (tower.Range / 100f);
+                foreach (DamageType element in Enum.GetValues(typeof(DamageType)))
+                {
+                    float mult = DamageChart.GetMultiplier(tower.DamageType, element);
+                    ElementScores[element] += baseRisk * mult;
+                }
+            }
+
+            // Finalize averages
+            if (TowerProfile.TowerCount > 0)
+            {
+                TowerProfile.AverageCooldown = totalCooldown / TowerProfile.TowerCount;
+                TowerProfile.AverageRange = totalRange / TowerProfile.TowerCount;
+            }
+
+            // Sort element scores ascending (cheapest resistance at [0])
+            SortedScores = ElementScores
+                .OrderBy(kv => kv.Value)
+                .Select(kv => (kv.Key, kv.Value))
+                .ToList();
+
+            // Derive strategy from profile
+            Strategy = DeriveStrategy();
+        }
+
+        // ── Picks composition strategy from tower profile ────────────────────
+        //
+        // Grid:
+        //   SlowFire + LongRange  → TankWall    (wide shot gaps, big HP soaks shots)
+        //   SlowFire + ShortRange → FastSwarm   (sprint past the short kill zone)
+        //   FastFire + ShortRange → DuplicatorPush (overwhelm the fast cluster)
+        //   FastFire + LongRange  → NormalWithFast (spread aggro, normals draft behind)
+        //   No towers             → NormalWithTank (safe default)
+        //
+        // A random nudge (1-in-5) swaps to an adjacent strategy so the same
+        // tower layout doesn't always produce identical waves.
+        private SpawnStrategy DeriveStrategy()
+        {
+            if (TowerProfile.TowerCount == 0) return SpawnStrategy.NormalWithTank;
+
+            bool slow = TowerProfile.IsSlowFire;
+            bool close = TowerProfile.IsShortRange;
+            bool nudge = RandomHelper.Chance(0.2f); // 20% deviation
+
+            if (slow && !close)
+                return nudge ? SpawnStrategy.NormalWithFast : SpawnStrategy.TankWall;
+
+            if (slow && close)
+                return nudge ? SpawnStrategy.DuplicatorPush : SpawnStrategy.FastSwarm;
+
+            if (!slow && close)
+                return nudge ? SpawnStrategy.FastSwarm : SpawnStrategy.DuplicatorPush;
+
+            // FastFire + LongRange — toughest for enemies, go mixed
+            return nudge ? SpawnStrategy.NormalWithTank : SpawnStrategy.NormalWithFast;
+        }
+
+        // Returns the 'count' best resistances (highest element scores = most dangerous towers)
+        public List<DamageType> GetTopResistances(int count)
+        {
+            var top = SortedScores.TakeLast(count).Select(p => p.Element).ToList();
+            if (top.Count == 0) top.Add(DamageType.Physical);
+            return top;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // WaveDirector: owns one PathIntelligence per path
+    // -------------------------------------------------------------------------
     public class WaveDirector
     {
-        public float TotalBudget = 60f; // Starting budget (Wave 1)
+        public float TotalBudget = 60f;
 
-        // The "Notebook" of preferences
-        private Dictionary<int, float> _pathPreference = new Dictionary<int, float>();
-        private Dictionary<DamageType, float> _elementPreference = new Dictionary<DamageType, float>();
+        private Dictionary<int, PathIntelligence> _pathData = new Dictionary<int, PathIntelligence>();
 
         public WaveDirector(int pathCount)
         {
-            // Initialize preferences to 100
-            for (int i = 0; i < pathCount; i++) _pathPreference[i] = 100f;
-            foreach (DamageType type in Enum.GetValues(typeof(DamageType)))
-                _elementPreference[type] = 100f;
+            for (int i = 0; i < pathCount; i++)
+                _pathData[i] = new PathIntelligence(i);
         }
 
-        // RISK ASSESSMENT: Calculates how dangerous a path is
+        public void AnalyzeAllPaths(List<List<Vector2>> paths, List<Tower> towers)
+        {
+            for (int i = 0; i < paths.Count; i++)
+                if (_pathData.ContainsKey(i))
+                    _pathData[i].RebuildScores(paths[i], towers);
+        }
+
+        public PathIntelligence GetPathIntel(int pathIndex)
+            => _pathData.ContainsKey(pathIndex) ? _pathData[pathIndex] : null;
+
         public float CalculatePathRisk(List<Vector2> path, List<Tower> towers)
         {
             float risk = 0;
@@ -35,118 +229,80 @@ namespace game2
             {
                 float rangeSq = tower.Range * tower.Range;
                 bool canHit = false;
-
-                // Optimization: Check every 5th point to save CPU time
                 for (int i = 0; i < path.Count; i += 5)
-                {
                     if (Vector2.DistanceSquared(path[i], tower.Position) <= rangeSq)
-                    {
-                        canHit = true;
-                        break;
-                    }
-                }
+                    { canHit = true; break; }
 
                 if (canHit)
-                {
-                    // High DPS (low cooldown) adds more risk
-                    risk += (1.0f / tower.Cooldown);
-                    // Long range adds risk
-                    risk += (tower.Range / 100f);
-                }
+                    risk += (1.0f / tower.Cooldown) * (tower.Range / 100f);
             }
             return risk;
         }
 
         public List<PathRank> GetRankedPaths(List<List<Vector2>> paths, List<Tower> towers)
         {
-            List<PathRank> rankings = new List<PathRank>();
-
+            var list = new List<PathRank>();
             for (int i = 0; i < paths.Count; i++)
             {
-                float risk = CalculatePathRisk(paths[i], towers);
-
-                // Fitness = Preference - Risk
-                float fitness = _pathPreference[i] - risk;
-
-                rankings.Add(new PathRank { Index = i, Fitness = fitness });
+                float fitness = _pathData[i].Preference - CalculatePathRisk(paths[i], towers);
+                list.Add(new PathRank { Index = i, Fitness = fitness });
             }
-
-            // Sort by Fitness descending (Highest score at index 0)
-            rankings.Sort((a, b) => b.Fitness.CompareTo(a.Fitness));
-
-            return rankings;
+            list.Sort((a, b) => b.Fitness.CompareTo(a.Fitness));
+            return list;
         }
 
-        // NEW METHOD: Calculates the best element SPECIFICALLY for a single path
-        public DamageType GetBestElementForPath(List<Vector2> path, List<Tower> towers)
+        // ------------------------------------------------------------------
+        // Record up to 3 survivor templates for a path.
+        //
+        // Sorting priority:
+        //   1. Enemies that reached the base (WaypointReached == int.MaxValue) — first
+        //   2. Among the rest: highest WaypointReached (went furthest)
+        //   3. Tiebreak: cheapest budget cost (most efficient enemy)
+        //
+        // This means: if NOBODY reached the base, we still keep the 3 enemies
+        // that got closest — they are the most promising templates.
+        // ------------------------------------------------------------------
+        public void RecordSurvivors(int pathIndex, List<SurvivorTemplate> candidates)
         {
-            DamageType bestElement = DamageType.Physical;
-            float highestScore = float.MinValue;
+            if (!_pathData.ContainsKey(pathIndex)) return;
 
-            foreach (DamageType element in Enum.GetValues(typeof(DamageType)))
+            candidates.Sort((a, b) =>
             {
-                if (element == DamageType.Physical) continue;
+                int cmp = b.WaypointReached.CompareTo(a.WaypointReached); // furthest first
+                if (cmp != 0) return cmp;
+                return a.BudgetCost.CompareTo(b.BudgetCost);              // cheapest tiebreak
+            });
 
-                // Calculate Elemental Advantage (Countering towers)
-                float counterBonus = 0;
-                foreach (var t in towers)
-                {
-                    // If this element resists the tower (multiplier < 1), it is a good choice
-                    if (DamageChart.GetMultiplier(t.DamageType, element) < 1.0f)
-                        counterBonus += 2f;
-                }
-
-                // Score = Preference + Bonus
-                // (We don't subtract Risk here because Risk is identical for all elements on the same path)
-                float score = _elementPreference[element] + counterBonus;
-
-                if (score > highestScore)
-                {
-                    highestScore = score;
-                    bestElement = element;
-                }
-            }
-
-            // FATIGUE: Reduce preference so we don't spam the same element every time
-            _elementPreference[bestElement] -= 2f;
-
-            return bestElement;
+            _pathData[pathIndex].Survivors = candidates.Take(3).ToList();
         }
 
-        // EVOLUTION: Adjust budget based on player performance
-        public void Evolve(bool enemyReachedBase)
+        public void ClearSurvivors(int pathIndex)
         {
-            if (!enemyReachedBase)
-            {
-                // Player won easily -> Increase difficulty by 15%
-                TotalBudget *= 1.15f;
-            }
-            else
-            {
-                // Player struggled -> Increase difficulty by only 5%
-                TotalBudget *= 1.05f;
-            }
+            if (_pathData.ContainsKey(pathIndex))
+                _pathData[pathIndex].Survivors.Clear();
         }
 
         public void ApplyPathFatigue(int pathIdx)
         {
-            if (_pathPreference.ContainsKey(pathIdx))
-                _pathPreference[pathIdx] -= 5f;
+            if (_pathData.ContainsKey(pathIdx))
+                _pathData[pathIdx].Preference -= 5f;
         }
 
-        // Legacy support: Wraps the new methods to provide a single strategy
+        public void Evolve(bool enemyReachedBase)
+        {
+            TotalBudget *= enemyReachedBase ? 1.05f : 1.15f;
+        }
+
+        // Legacy wrapper for BOSS logic in EnemySpawner
         public (int pathIdx, DamageType element) GetBestStrategy(List<List<Vector2>> paths, List<Tower> towers)
         {
             var ranked = GetRankedPaths(paths, towers);
             int bestPath = ranked[0].Index;
-
-            // Use the new helper to find the element for this specific path
-            DamageType bestElement = GetBestElementForPath(paths[bestPath], towers);
-
-            // Apply fatigue manually since we selected this path
+            var intel = GetPathIntel(bestPath);
+            var topRes = intel?.GetTopResistances(1);
+            DamageType elem = (topRes != null && topRes.Count > 0) ? topRes[0] : DamageType.Physical;
             ApplyPathFatigue(bestPath);
-
-            return (bestPath, bestElement);
+            return (bestPath, elem);
         }
     }
 }
